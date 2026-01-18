@@ -101,10 +101,11 @@ cilium-first-sample/
 4. Observe traffic with `hubble observe --follow`
 
 ### Intermediate
-1. Deploy L4 policy: `cilium-policies/l4-allow-specific.yaml`
-2. Deploy L7 policy: `cilium-policies/l7-http-methods.yaml`
-3. Install Hubble UI: `./observability/install-hubble.sh`
-4. Practice queries from `observability/queries.md`
+1. Create treasury namespace: `kubectl create namespace treasury`
+2. Deploy L4 policy: `cilium-policies/l4-allow-specific.yaml`
+3. Deploy L7 policy: `cilium-policies/l7-http-methods.yaml`
+4. Install Hubble UI: `./observability/install-hubble.sh`
+5. Practice queries from `observability/queries.md`
 
 ### Advanced
 1. Install Kyverno: `kubectl create -f https://github.com/kyverno/kyverno/releases/latest/download/install.yaml`

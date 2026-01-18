@@ -97,24 +97,27 @@ You should see `DROP` verdicts in the output.
 # 1. Apply deny-all first (if not already)
 kubectl apply -f l3-deny-all.yaml
 
-# 2. Apply the L4 policy
+# 2. Create treasury namespace (required for treasury-db-access policy)
+kubectl create namespace treasury
+
+# 3. Apply the L4 policy
 kubectl apply -f l4-allow-specific.yaml
 
-# 3. Test from frontend (should SUCCEED)
+# 4. Test from frontend (should SUCCEED)
 kubectl exec frontend -- wget -qO- http://backend:8080
 ```
 
 **Expected**: `Backend API responding`
 
 ```bash
-# 4. Test from unauthorized pod (should FAIL)
+# 5. Test from unauthorized pod (should FAIL)
 kubectl run test --rm -it --image=curlimages/curl -- curl -m 5 backend:8080
 ```
 
 **Expected**: Timeout (no matching label)
 
 ```bash
-# 5. Verify with Hubble
+# 6. Verify with Hubble
 hubble observe --pod frontend
 hubble observe --verdict DROPPED
 ```
@@ -208,6 +211,9 @@ Cilium understands gRPC natively - no Istio/Envoy sidecars required!
 ```bash
 # Zero Trust baseline
 kubectl apply -f l3-deny-all.yaml
+
+# Create treasury namespace (required for L4 policy)
+kubectl create namespace treasury
 
 # Add port-based rules
 kubectl apply -f l4-allow-specific.yaml
