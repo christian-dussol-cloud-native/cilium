@@ -104,7 +104,7 @@ kubectl create namespace treasury
 kubectl apply -f l4-allow-specific.yaml
 
 # 4. Test from frontend (should SUCCEED)
-kubectl exec frontend -- wget -qO- http://backend:8080
+kubectl exec frontend -- curl -s http://backend:8080
 ```
 
 **Expected**: `Backend API responding`

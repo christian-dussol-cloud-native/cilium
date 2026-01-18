@@ -91,13 +91,12 @@ metadata:
   namespace: default
   labels:
     tier: frontend
-    app: web
+    app: frontend
 spec:
   containers:
-  - name: nginx
-    image: nginx:alpine
-    ports:
-    - containerPort: 80
+  - name: curl
+    image: curlimages/curl:latest
+    command: ["sleep", "3600"]
 
 ---
 apiVersion: v1

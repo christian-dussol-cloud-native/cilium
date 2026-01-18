@@ -115,19 +115,4 @@ spec:
   - port: 8080
     targetPort: 8080
 
----
-# Demo: Frontend Pod
-apiVersion: v1
-kind: Pod
-metadata:
-  name: frontend
-  namespace: default
-  labels:
-    app: frontend
-    tier: frontend
-spec:
-  containers:
-  - name: curl
-    image: curlimages/curl:latest
-    command: ["sleep", "3600"]
 
