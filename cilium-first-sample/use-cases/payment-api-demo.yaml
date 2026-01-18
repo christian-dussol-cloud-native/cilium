@@ -1,0 +1,387 @@
+# Complete Payment API Demo - Financial Services Zero Trust Architecture
+#
+# This demo showcases Cilium's capabilities for securing a payment processing
+# system in a financial services environment with PCI-DSS requirements.
+#
+# Architecture:
+# - Frontend (Web/Mobile) → API Gateway → Payment Service → Database
+# - All communication secured with L3/L4/L7 NetworkPolicies
+# - Zero Trust: Default deny, explicit allow only what's needed
+# - Full observability with Hubble
+# - Automated governance with Kyverno
+
+---
+# Namespace with Cost Management and Security Labels
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payment-system
+  labels:
+    cost-management-required: "true"
+    policy-required: "true"
+    pci-scope: "in-scope"
+    environment: production
+    team: payments
+    cost-center: CC-5000
+
+---
+# 1. DATABASE TIER
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-db
+  namespace: payment-system
+  labels:
+    app: payment-db
+    tier: database
+    team: payments
+    environment: production
+    cost-center: CC-5000
+    pci-scope: "in-scope"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-db
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: payment-db
+        tier: database
+        team: payments
+        environment: production
+        cost-center: CC-5000
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_DB
+          value: payments
+        - name: POSTGRES_USER
+          value: paymentuser
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+        ports:
+        - containerPort: 5432
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-db
+  namespace: payment-system
+spec:
+  selector:
+    app: payment-db
+    tier: database
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: payment-system
+type: Opaque
+stringData:
+  password: "change-me-in-production"
+
+---
+# NetworkPolicy: Database accepts ONLY from payment-service
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payment-db-policy
+  namespace: payment-system
+spec:
+  description: "Secure database: allow only payment-service on port 5432"
+  endpointSelector:
+    matchLabels:
+      app: payment-db
+      tier: database
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: payment-service
+        tier: backend
+    toPorts:
+    - ports:
+      - port: "5432"
+        protocol: TCP
+  egress:
+  # Database should not initiate connections (defense in depth)
+  - toEntities:
+    - host  # Only for health checks
+
+---
+# 2. BACKEND TIER - Payment Service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: payment-system
+  labels:
+    app: payment-service
+    tier: backend
+    team: payments
+    environment: production
+    cost-center: CC-5000
+    pci-scope: "in-scope"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-service
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        tier: backend
+        team: payments
+        environment: production
+        cost-center: CC-5000
+    spec:
+      containers:
+      - name: api
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=Payment Service API v1.0 - PCI-DSS Compliant"
+        - "-listen=:8080"
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DB_HOST
+          value: payment-db
+        - name: DB_PORT
+          value: "5432"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: payment-system
+spec:
+  selector:
+    app: payment-service
+    tier: backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# NetworkPolicy: Payment service accepts from gateway, talks to DB
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payment-service-policy
+  namespace: payment-system
+spec:
+  description: "Payment service L7 policy with HTTP method filtering"
+  endpointSelector:
+    matchLabels:
+      app: payment-service
+      tier: backend
+  
+  # Ingress: Accept only from API gateway with specific HTTP methods
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: api-gateway
+        tier: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        # Allow POST for creating payments
+        - method: "POST"
+          path: "/api/v1/payment"
+        # Allow GET for retrieving payment status
+        - method: "GET"
+          path: "/api/v1/payment/.*"
+        # Allow GET for health check
+        - method: "GET"
+          path: "/health"
+        # Block DELETE, PUT, PATCH (immutability for audit)
+  
+  # Egress: Allow to database and DNS only
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: payment-db
+        tier: database
+    toPorts:
+    - ports:
+      - port: "5432"
+        protocol: TCP
+  
+  # DNS resolution
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": kube-system
+        "k8s:k8s-app": kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      rules:
+        dns:
+        - matchPattern: "*"
+  
+  # Kubernetes API (for leader election, if needed)
+  - toEntities:
+    - kube-apiserver
+
+---
+# 3. FRONTEND TIER - API Gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: payment-system
+  labels:
+    app: api-gateway
+    tier: frontend
+    team: payments
+    environment: production
+    cost-center: CC-5000
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        tier: frontend
+        team: payments
+        environment: production
+        cost-center: CC-5000
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: payment-system
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-gateway
+    tier: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# NetworkPolicy: Gateway accepts from internet, talks to payment service
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: api-gateway-policy
+  namespace: payment-system
+spec:
+  description: "API Gateway: public ingress, restricted egress"
+  endpointSelector:
+    matchLabels:
+      app: api-gateway
+      tier: frontend
+  
+  # Ingress: Accept from world (public internet)
+  ingress:
+  - fromEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+      - port: "443"
+        protocol: TCP
+  
+  # Egress: Allow only to payment-service (no internet access)
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: payment-service
+        tier: backend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+  
+  # DNS
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": kube-system
+        "k8s:k8s-app": kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      rules:
+        dns:
+        - matchPattern: "*"
+
+---
+# 4. MONITORING POD (for testing Hubble queries)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-client
+  namespace: payment-system
+  labels:
+    app: test-client
+    team: payments
+    environment: production
+    cost-center: CC-5000
+spec:
+  containers:
+  - name: curl
+    image: curlimages/curl:latest
+    command: ["sleep", "3600"]
+

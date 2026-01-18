@@ -1,0 +1,223 @@
+# Payment API Demo - Financial Services Zero Trust Architecture
+
+This demo showcases Cilium's capabilities for securing a payment processing system in a financial services environment with **PCI-DSS requirements**.
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    Internet[Internet/Clients] -->|HTTPS :443| Gateway[API Gateway<br/>nginx:alpine]
+    Gateway -->|HTTP POST/GET only<br/>:8080| Payment[Payment Service<br/>http-echo]
+    Payment -->|PostgreSQL<br/>:5432| DB[(Payment Database<br/>postgres:15)]
+
+    Gateway -.->|Blocked| DB
+    Payment -.->|No Internet| Internet
+    TestClient[Test Client<br/>curl] -.->|Blocked| DB
+
+    subgraph frontend ["Frontend Tier"]
+        Gateway
+    end
+
+    subgraph backend ["Backend Tier"]
+        Payment
+    end
+
+    subgraph data ["Data Tier"]
+        DB
+    end
+
+    style Internet fill:#ff6b6b,color:#fff
+    style Gateway fill:#4dabf7,color:#fff
+    style Payment fill:#51cf66,color:#fff
+    style DB fill:#ffd43b,color:#000
+    style TestClient fill:#868e96,color:#fff
+```
+
+### Traffic Flow
+
+| Source | Destination | Port | Protocol | Status |
+|--------|-------------|------|----------|--------|
+| Internet | API Gateway | 80/443 | HTTP/HTTPS | Allowed |
+| API Gateway | Payment Service | 8080 | HTTP (POST/GET only) | Allowed |
+| Payment Service | Payment DB | 5432 | PostgreSQL | Allowed |
+| API Gateway | Payment DB | 5432 | - | **Blocked** |
+| Payment Service | Internet | - | - | **Blocked** |
+| Test Client | Payment DB | 5432 | - | **Blocked** |
+
+---
+
+## Components
+
+### 1. Database Tier (`payment-db`)
+
+- **Image**: `postgres:15-alpine`
+- **Replicas**: 2
+- **Port**: 5432
+- **Policy**: Accept connections **only** from `payment-service`
+
+### 2. Backend Tier (`payment-service`)
+
+- **Image**: `hashicorp/http-echo:latest`
+- **Replicas**: 3
+- **Port**: 8080
+- **L7 Policy**:
+  - `POST /api/v1/payment` - Create payment
+  - `GET /api/v1/payment/.*` - Get payment status
+  - `GET /health` - Health check
+  - `DELETE`, `PUT`, `PATCH` - **Blocked** (immutability for audit)
+
+### 3. Frontend Tier (`api-gateway`)
+
+- **Image**: `nginx:alpine`
+- **Replicas**: 2
+- **Port**: 80 (LoadBalancer)
+- **Policy**: Accept from internet, egress only to `payment-service`
+
+### 4. Test Client (`test-client`)
+
+- **Image**: `curlimages/curl:latest`
+- Used for testing network policies
+
+---
+
+## Quick Start
+
+```bash
+# 1. Deploy everything
+kubectl apply -f payment-api-demo.yaml
+
+# 2. Wait for all pods to be ready
+kubectl wait --for=condition=ready pod --all -n payment-system --timeout=120s
+
+# 3. Check deployment status
+kubectl get pods -n payment-system
+```
+
+---
+
+## Test Scenarios
+
+### Scenario A: Gateway to Payment Service (ALLOWED)
+
+```bash
+kubectl exec -n payment-system test-client -- \
+  curl -X POST http://api-gateway/api/v1/payment
+# Expected: 200 OK
+```
+
+### Scenario B: Direct Database Access (BLOCKED)
+
+```bash
+kubectl exec -n payment-system test-client -- \
+  curl -m 5 http://payment-db:5432
+# Expected: timeout (policy blocks)
+```
+
+### Scenario C: Blocked HTTP Method (BLOCKED)
+
+```bash
+kubectl exec -n payment-system test-client -- \
+  curl -X DELETE http://payment-service:8080/api/v1/payment/123
+# Expected: 403 Forbidden (L7 policy)
+```
+
+### Scenario D: Internet Access from Payment Service (BLOCKED)
+
+```bash
+kubectl exec -n payment-system deployment/payment-service -- \
+  curl -m 5 http://google.com
+# Expected: timeout (no egress to world)
+```
+
+---
+
+## Observability with Hubble
+
+```bash
+# Watch all traffic in payment-system namespace
+hubble observe --namespace payment-system --follow
+
+# View only dropped/blocked traffic
+hubble observe -n payment-system --verdict DROPPED
+
+# Filter HTTP traffic only
+hubble observe -n payment-system --protocol http
+
+# Check policy status
+kubectl get cnp -n payment-system
+kubectl describe cnp payment-service-policy -n payment-system
+```
+
+---
+
+## PCI-DSS Compliance Mapping
+
+| Requirement | Description | Implementation |
+|-------------|-------------|----------------|
+| **1.2.1** | Restrict inbound/outbound traffic | CiliumNetworkPolicy (default deny) |
+| **1.3.1** | DMZ for internet-facing systems | API Gateway in separate tier with restricted egress |
+| **1.3.4** | Do not allow unauthorized outbound | Payment service cannot reach internet |
+| **2.2.1** | One primary function per server | Each microservice has single responsibility |
+| **6.6** | Ensure all traffic validated | L7 HTTP method filtering on payment service |
+| **10.2.2** | Automated audit trails | Hubble logs all allowed/denied connections |
+| **11.4** | Use network segmentation | Logical segmentation via NetworkPolicies |
+
+---
+
+## Network Policies Summary
+
+```mermaid
+graph LR
+    subgraph policies ["CiliumNetworkPolicy"]
+        P1[api-gateway-policy]
+        P2[payment-service-policy]
+        P3[payment-db-policy]
+    end
+
+    P1 -->|L3/L4| Gateway[API Gateway]
+    P2 -->|L7 HTTP| Payment[Payment Service]
+    P3 -->|L4| DB[(Database)]
+
+    style P1 fill:#4dabf7,color:#fff
+    style P2 fill:#51cf66,color:#fff
+    style P3 fill:#ffd43b,color:#000
+```
+
+| Policy | Layer | Rules |
+|--------|-------|-------|
+| `api-gateway-policy` | L3/L4 | Accept from `world`, egress to `payment-service:8080` |
+| `payment-service-policy` | L7 | HTTP method filtering, egress to `payment-db:5432` |
+| `payment-db-policy` | L4 | Accept only from `payment-service:5432` |
+
+---
+
+## Cost Management Labels
+
+All resources include cost allocation labels for financial tracking:
+
+```yaml
+labels:
+  team: payments
+  cost-center: CC-5000
+  environment: production
+  pci-scope: "in-scope"
+```
+
+---
+
+## Resources
+
+- [Cilium L7 Policies Documentation](https://docs.cilium.io/en/stable/security/policy/language/#layer-7-examples)
+- [Hubble Observability](https://docs.cilium.io/en/stable/observability/hubble/)
+- [Kyverno Integration](https://kyverno.io/policies/)
+- [PCI-DSS Guidelines](https://www.pcisecuritystandards.org/pci_security/)
+
+---
+
+## Cleanup
+
+```bash
+kubectl delete namespace payment-system
+```
