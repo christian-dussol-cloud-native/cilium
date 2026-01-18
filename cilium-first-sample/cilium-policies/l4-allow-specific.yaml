@@ -5,17 +5,44 @@ metadata:
   namespace: default
 spec:
   description: "L4 policy: Allow frontend to access backend on specific ports"
-  
+
   # This policy applies to backend pods
   endpointSelector:
     matchLabels:
       tier: backend
-  
+
   # Allow ingress only from frontend on specific ports
   ingress:
   - fromEndpoints:
     - matchLabels:
         tier: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      - port: "8443"
+        protocol: TCP
+
+---
+# Egress policy: Allow frontend to reach backend
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: default
+spec:
+  description: "L4 policy: Allow frontend egress to backend on specific ports"
+
+  # This policy applies to frontend pods
+  endpointSelector:
+    matchLabels:
+      tier: frontend
+
+  # Allow egress to backend on specific ports
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        tier: backend
     toPorts:
     - ports:
       - port: "8080"

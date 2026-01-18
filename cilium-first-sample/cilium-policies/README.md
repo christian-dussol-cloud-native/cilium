@@ -109,6 +109,8 @@ kubectl exec frontend -- wget -qO- http://backend:8080
 
 **Expected**: `Backend API responding`
 
+![Cilium Policies L4](../images/Cilium-policies-L4.png)
+
 ```bash
 # 5. Test from unauthorized pod (should FAIL)
 kubectl run test --rm -it --image=curlimages/curl -- curl -m 5 backend:8080
@@ -121,6 +123,8 @@ kubectl run test --rm -it --image=curlimages/curl -- curl -m 5 backend:8080
 hubble observe --pod frontend
 hubble observe --verdict DROPPED
 ```
+
+![Cilium Policies L4-2](../images/Cilium-policies-L4-2.png)
 
 ---
 
