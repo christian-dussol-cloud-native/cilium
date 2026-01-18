@@ -1,0 +1,133 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payment-api-l7-policy
+  namespace: default
+spec:
+  description: "L7 policy: Allow only specific HTTP methods and paths to payment API"
+  
+  # Apply to payment API pods
+  endpointSelector:
+    matchLabels:
+      app: payment-api
+      tier: backend
+  
+  ingress:
+  # Allow from frontend with specific HTTP rules
+  - fromEndpoints:
+    - matchLabels:
+        app: frontend
+        tier: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      rules:
+        http:
+        # Allow POST to create payments
+        - method: "POST"
+          path: "/api/v1/payment"
+        
+        # Allow GET to retrieve payment status
+        - method: "GET"
+          path: "/api/v1/payment/.*"
+        
+        # Block all other methods (PUT, DELETE, PATCH)
+
+---
+# Advanced Example: gRPC Service Mesh Alternative
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: grpc-trading-service
+  namespace: trading
+spec:
+  description: "L7 gRPC: Allow only specific RPC methods"
+  
+  endpointSelector:
+    matchLabels:
+      app: trading-engine
+  
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: trading-frontend
+    toPorts:
+    - ports:
+      - port: "50051"
+        protocol: TCP
+      rules:
+        # Cilium understands gRPC without Istio!
+        http:
+        - method: "POST"
+          path: "/trading.TradeService/ExecuteTrade"
+        - method: "POST"
+          path: "/trading.TradeService/GetQuote"
+        # Block admin methods
+        # - method: "POST"
+        #   path: "/trading.TradeService/CancelAllTrades"
+
+---
+# Demo: Payment API Pod
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-api
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: payment-api
+        tier: backend
+    spec:
+      containers:
+      - name: api
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=Payment API - POST /api/v1/payment, GET /api/v1/payment/:id"
+        - "-listen=:8080"
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-api
+  namespace: default
+spec:
+  selector:
+    app: payment-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# Demo: Frontend Pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  namespace: default
+  labels:
+    app: frontend
+    tier: frontend
+spec:
+  containers:
+  - name: curl
+    image: curlimages/curl:latest
+    command: ["sleep", "3600"]
+

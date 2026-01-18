@@ -1,0 +1,106 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: default
+spec:
+  description: "L4 policy: Allow frontend to access backend on specific ports"
+  
+  # This policy applies to backend pods
+  endpointSelector:
+    matchLabels:
+      tier: backend
+  
+  # Allow ingress only from frontend on specific ports
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        tier: frontend
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      - port: "8443"
+        protocol: TCP
+
+---
+# Example: Financial Services Treasury Database Access
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: treasury-db-access
+  namespace: treasury
+spec:
+  description: "Allow only treasury-api to access PostgreSQL database"
+  
+  endpointSelector:
+    matchLabels:
+      app: treasury-db
+      tier: database
+  
+  ingress:
+  # Allow from treasury-api pods only
+  - fromEndpoints:
+    - matchLabels:
+        app: treasury-api
+        tier: backend
+    toPorts:
+    - ports:
+      - port: "5432"
+        protocol: TCP
+  
+  # Deny all other ingress implicitly
+  egress:
+  # Allow database to reach nothing (defense in depth)
+  - toEntities:
+    - host  # Only kubelet health checks
+
+---
+# Demo pods for testing
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  namespace: default
+  labels:
+    tier: frontend
+    app: web
+spec:
+  containers:
+  - name: nginx
+    image: nginx:alpine
+    ports:
+    - containerPort: 80
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    tier: backend
+    app: api
+spec:
+  containers:
+  - name: api
+    image: hashicorp/http-echo:latest
+    args:
+    - "-text=Backend API responding"
+    - "-listen=:8080"
+    ports:
+    - containerPort: 8080
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+spec:
+  selector:
+    tier: backend
+  ports:
+  - port: 8080
+    targetPort: 8080
+
