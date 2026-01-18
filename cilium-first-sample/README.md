@@ -52,7 +52,7 @@ cilium hubble ui
 # Monitor in Hubble UI by selecting your K8s namespace (default)
 ```
 
-![Cilium Hubble UI Example](cilium-hubble-ui-example.png)
+![Cilium Hubble UI Example](images/cilium-hubble-ui-example.png)
 
 ```bash
 # 6. Deploy first NetworkPolicy
