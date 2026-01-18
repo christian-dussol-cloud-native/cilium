@@ -146,44 +146,47 @@ hubble observe --verdict DROPPED
 ### Test Scenario
 
 ```bash
-# 1. Apply all policies
+# 1. Create trading namespace (required for gRPC policy)
+kubectl create namespace trading
+
+# 2. Apply all policies
 kubectl apply -f l3-deny-all.yaml
 kubectl apply -f l4-allow-specific.yaml
 kubectl apply -f l7-http-methods.yaml
 
-# 2. Wait for pods
+# 3. Wait for pods
 kubectl wait --for=condition=ready pod -l app=payment-api
 kubectl wait --for=condition=ready pod/frontend
 
-# 3. Test allowed POST (should SUCCEED)
+# 4. Test allowed POST (should SUCCEED)
 kubectl exec frontend -- curl -X POST http://payment-api:8080/api/v1/payment
 ```
 
 **Expected**: 200 OK
 
 ```bash
-# 4. Test allowed GET (should SUCCEED)
+# 5. Test allowed GET (should SUCCEED)
 kubectl exec frontend -- curl -X GET http://payment-api:8080/api/v1/payment/123
 ```
 
 **Expected**: 200 OK
 
 ```bash
-# 5. Test blocked DELETE (should FAIL)
+# 6. Test blocked DELETE (should FAIL)
 kubectl exec frontend -- curl -X DELETE http://payment-api:8080/api/v1/payment/123
 ```
 
 **Expected**: 403 Forbidden or connection reset
 
 ```bash
-# 6. Test blocked path (should FAIL)
+# 7. Test blocked path (should FAIL)
 kubectl exec frontend -- curl -X POST http://payment-api:8080/admin/reset
 ```
 
 **Expected**: 403 Forbidden
 
 ```bash
-# 7. Verify with Hubble
+# 8. Verify with Hubble
 hubble observe --pod payment-api --protocol http
 hubble observe --verdict DROPPED --http-status 403
 ```
@@ -216,8 +219,9 @@ Cilium understands gRPC natively - no Istio/Envoy sidecars required!
 # Zero Trust baseline
 kubectl apply -f l3-deny-all.yaml
 
-# Create treasury namespace (required for L4 policy)
+# Create namespaces (required for L4 and L7 policies)
 kubectl create namespace treasury
+kubectl create namespace trading
 
 # Add port-based rules
 kubectl apply -f l4-allow-specific.yaml

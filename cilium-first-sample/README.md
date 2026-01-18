@@ -101,7 +101,7 @@ cilium-first-sample/
 4. Observe traffic with `hubble observe --follow`
 
 ### Intermediate
-1. Create treasury namespace: `kubectl create namespace treasury`
+1. Create namespaces: `kubectl create namespace treasury && kubectl create namespace trading`
 2. Deploy L4 policy: `cilium-policies/l4-allow-specific.yaml`
 3. Deploy L7 policy: `cilium-policies/l7-http-methods.yaml`
 4. Install Hubble UI: `./observability/install-hubble.sh`
