@@ -72,6 +72,8 @@ hubble observe --pod test-client
 
 You should see `DROP` verdicts in the output.
 
+![Cilium Policies L3](../images/Cilium-policies-L3.png)
+
 ---
 
 ## 2. L4 - Allow Specific Ports (`l4-allow-specific.yaml`)
