@@ -1,0 +1,128 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-network-policy
+  annotations:
+    policies.kyverno.io/title: Require NetworkPolicy for All Namespaces
+    policies.kyverno.io/category: Cilium, Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Namespace, CiliumNetworkPolicy
+    policies.kyverno.io/description: >-
+      Ensures every namespace has at least one CiliumNetworkPolicy.
+      This enforces Zero Trust networking - no namespace should allow
+      unrestricted traffic. Particularly critical for Financial Services
+      and PCI-DSS compliance.
+spec:
+  validationFailureAction: Audit  # Start with Audit, then change to Enforce
+  background: true
+  rules:
+  
+  # Rule 1: Validate namespaces have NetworkPolicy
+  - name: check-network-policy-exists
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+          namespaceSelector:
+            matchExpressions:
+            - key: policy-required
+              operator: In
+              values:
+              - "true"
+    validate:
+      message: >-
+        Namespace must have at least one CiliumNetworkPolicy.
+        Apply a default-deny policy before creating workloads.
+      deny:
+        conditions:
+          any:
+          - key: "{{ request.operation }}"
+            operator: Equals
+            value: CREATE
+          - key: "{{ request.operation }}"
+            operator: Equals
+            value: UPDATE
+      preconditions:
+        any:
+        - key: "{{ request.object.metadata.name }}"
+          operator: NotEquals
+          value: "kube-system"
+        - key: "{{ request.object.metadata.name }}"
+          operator: NotEquals
+          value: "kube-public"
+        - key: "{{ request.object.metadata.name }}"
+          operator: NotEquals
+          value: "kube-node-lease"
+
+---
+# Policy 2: Auto-generate default-deny NetworkPolicy
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-default-deny-policy
+  annotations:
+    policies.kyverno.io/title: Auto-Generate Default Deny NetworkPolicy
+    policies.kyverno.io/category: Cilium, Automation
+    policies.kyverno.io/subject: CiliumNetworkPolicy
+    policies.kyverno.io/description: >-
+      Automatically creates a default-deny CiliumNetworkPolicy
+      when a new namespace is created. This ensures Zero Trust
+      by default without manual intervention.
+spec:
+  rules:
+  - name: generate-deny-all-policy
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+    exclude:
+      any:
+      - resources:
+          namespaces:
+          - kube-system
+          - kube-public
+          - kube-node-lease
+          - cilium
+    generate:
+      synchronize: true
+      apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      name: default-deny-all
+      namespace: "{{request.object.metadata.name}}"
+      data:
+        spec:
+          description: "Auto-generated default deny policy by Kyverno"
+          endpointSelector: {}
+          egress:
+          # Allow DNS
+          - toEndpoints:
+            - matchLabels:
+                "k8s:io.kubernetes.pod.namespace": kube-system
+                "k8s:k8s-app": kube-dns
+            toPorts:
+            - ports:
+              - port: "53"
+                protocol: UDP
+              rules:
+                dns:
+                - matchPattern: "*"
+          # Allow to Kubernetes API
+          - toEntities:
+            - kube-apiserver
+          ingress:
+          # Allow health checks from host
+          - fromEntities:
+            - host
+
+---
+# Example namespace with policy requirement
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    policy-required: "true"
+    environment: production
+

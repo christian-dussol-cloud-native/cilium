@@ -1,0 +1,195 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-cost-management-labels
+  annotations:
+    policies.kyverno.io/title: Require Cost Management Allocation Labels
+    policies.kyverno.io/category: Cost Management, Governance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod, Deployment, StatefulSet
+    policies.kyverno.io/description: >-
+      Enforces cost allocation labels on all workloads for accurate
+      Cost Management reporting and chargeback. Required for multi-tenant
+      environments and financial services compliance.
+spec:
+  validationFailureAction: Audit  # Change to Enforce after testing
+  background: true
+  rules:
+  
+  # Rule 1: Require labels on Pods
+  - name: require-cost-labels-pods
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          namespaceSelector:
+            matchExpressions:
+            - key: cost-management-required
+              operator: In
+              values:
+              - "true"
+    validate:
+      message: >-
+        Pods must have Cost Management labels: team, environment, cost-center, and app.
+        These are required for accurate cost allocation and chargeback.
+      pattern:
+        metadata:
+          labels:
+            team: "?*"
+            environment: "dev | qa | staging | production"
+            cost-center: "?*"
+            app: "?*"
+  
+  # Rule 2: Require labels on Deployments
+  - name: require-cost-labels-deployments
+    match:
+      any:
+      - resources:
+          kinds:
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+          namespaceSelector:
+            matchExpressions:
+            - key: cost-management-required
+              operator: In
+              values:
+              - "true"
+    validate:
+      message: >-
+        Deployments must have Cost Management labels in both metadata and spec.template.
+      pattern:
+        metadata:
+          labels:
+            team: "?*"
+            environment: "dev | qa | staging | production"
+            cost-center: "?*"
+            app: "?*"
+        spec:
+          template:
+            metadata:
+              labels:
+                team: "?*"
+                environment: "dev | qa | staging | production"
+                cost-center: "?*"
+                app: "?*"
+
+---
+# Policy 2: Mutate to add default labels if missing
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-default-cost-management-labels
+  annotations:
+    policies.kyverno.io/title: Auto-Add Default Cost Management Labels
+    policies.kyverno.io/category: Cost Management, Automation
+    policies.kyverno.io/description: >-
+      Automatically adds default Cost Management labels to workloads
+      that don't have them. Helps with gradual adoption.
+spec:
+  rules:
+  - name: add-team-label
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    exclude:
+      any:
+      - resources:
+          namespaces:
+          - kube-system
+          - kube-public
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          labels:
+            +(team): "{{ request.namespace }}-team"
+            +(environment): "{{ request.namespace }}"
+            +(cost-center): "unallocated"
+
+---
+# Policy 3: Validate cost-center format (Financial Services specific)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: validate-cost-center-format
+  annotations:
+    policies.kyverno.io/title: Validate Cost Center Format
+    policies.kyverno.io/category: Cost Management, Compliance
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+  - name: check-cost-center-format
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          - Deployment
+          namespaceSelector:
+            matchExpressions:
+            - key: environment
+              operator: In
+              values:
+              - production
+    validate:
+      message: >-
+        cost-center must match format: CC-XXXX (e.g., CC-1234).
+        This is required for SAP integration and financial reporting.
+      pattern:
+        metadata:
+          labels:
+            cost-center: "CC-????"
+
+---
+# Example namespace with Cost Management requirements
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: treasury
+  labels:
+    cost-management-required: "true"
+    environment: production
+    cost-center: CC-7890
+    team: treasury
+
+---
+# Example Deployment - COMPLIANT
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-processor
+  namespace: treasury
+  labels:
+    team: treasury
+    environment: production
+    cost-center: CC-7890
+    app: payment-processor
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-processor
+  template:
+    metadata:
+      labels:
+        team: treasury
+        environment: production
+        cost-center: CC-7890
+        app: payment-processor
+    spec:
+      containers:
+      - name: processor
+        image: payment-processor:v1.2.3
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "500m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+
