@@ -143,6 +143,8 @@ kubectl exec -n payment-system test-client -- \
 
 > **Note**: The `payment-service` uses `hashicorp/http-echo` which doesn't have curl/wget. The egress restriction applies to all pods in the namespace via the network policies.
 
+![Cilium Policies L7](../images/Cilium-policies-payment-api.png)
+
 ---
 
 ## Understanding the L7 Policy
