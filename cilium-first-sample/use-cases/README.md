@@ -79,6 +79,7 @@ graph TB
 
 - **Image**: `curlimages/curl:latest`
 - Used for testing network policies
+- **Note**: This pod simulates an external client - it can only access the `api-gateway`, not internal services directly
 
 ---
 
@@ -99,37 +100,67 @@ kubectl get pods -n payment-system
 
 ## Test Scenarios
 
-### Scenario A: Gateway to Payment Service (ALLOWED)
+### Scenario A: Test Client to API Gateway (ALLOWED)
+
+The test-client simulates an external client accessing the API Gateway.
 
 ```bash
 kubectl exec -n payment-system test-client -- \
-  curl -X POST http://api-gateway/api/v1/payment
-# Expected: 200 OK
+  curl -s http://api-gateway
+# Expected: nginx welcome page (gateway is accessible)
 ```
 
-### Scenario B: Direct Database Access (BLOCKED)
+### Scenario B: Test Client Direct to Payment Service (BLOCKED - L3/L4)
+
+The test-client cannot bypass the gateway to access internal services directly.
+
+```bash
+kubectl exec -n payment-system test-client -- \
+  curl -m 5 http://payment-service:8080/api/v1/payment
+# Expected: timeout (test-client is not authorized, only api-gateway can reach payment-service)
+```
+
+### Scenario C: Test Client Direct to Database (BLOCKED - L3/L4)
+
+The test-client cannot access the database directly.
 
 ```bash
 kubectl exec -n payment-system test-client -- \
   curl -m 5 http://payment-db:5432
-# Expected: timeout (policy blocks)
+# Expected: timeout (only payment-service can reach the database)
 ```
 
-### Scenario C: Blocked HTTP Method (BLOCKED)
+### Scenario D: Internet Access from Payment Service (BLOCKED - Egress)
+
+Internal services cannot reach the internet (defense in depth).
 
 ```bash
-kubectl exec -n payment-system test-client -- \
-  curl -X DELETE http://payment-service:8080/api/v1/payment/123
-# Expected: 403 Forbidden (L7 policy)
-```
-
-### Scenario D: Internet Access from Payment Service (BLOCKED)
-
-```bash
-kubectl exec -n payment-system deployment/payment-service -- \
-  curl -m 5 http://google.com
+kubectl exec -n payment-system deployment/payment-service -c api -- \
+  wget -T 5 http://google.com
 # Expected: timeout (no egress to world)
 ```
+
+---
+
+## Understanding the L7 Policy
+
+The L7 HTTP filtering is applied between `api-gateway` and `payment-service`. Since `api-gateway` uses nginx (which doesn't have curl), we cannot directly test the L7 filtering from the command line in this demo.
+
+**What the L7 policy enforces:**
+- `POST /api/v1/payment` - Allowed (create payment)
+- `GET /api/v1/payment/.*` - Allowed (get payment status)
+- `GET /health` - Allowed (health check)
+- `DELETE`, `PUT`, `PATCH` - **Blocked** (immutability for audit)
+- Any other path - **Blocked**
+
+**To verify L7 filtering with Hubble:**
+
+```bash
+# Watch HTTP traffic to payment-service
+hubble observe -n payment-system --pod payment-service --protocol http --follow
+```
+
+In a production scenario, the nginx gateway would be configured to proxy requests to the payment-service, and Cilium would enforce the L7 rules on that traffic.
 
 ---
 

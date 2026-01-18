@@ -175,17 +175,17 @@ kubectl exec frontend -- curl -X GET http://payment-api:8080/api/v1/payment/123
 
 ```bash
 # 6. Test blocked DELETE (should FAIL)
-kubectl exec frontend -- curl -X DELETE http://payment-api:8080/api/v1/payment/123
+kubectl exec frontend -- curl -m 5 -X DELETE http://payment-api:8080/api/v1/payment/123
 ```
 
-**Expected**: 403 Forbidden or connection reset
+**Expected**: Timeout or connection reset (L7 policy blocks unauthorized methods)
 
 ```bash
 # 7. Test blocked path (should FAIL)
-kubectl exec frontend -- curl -X POST http://payment-api:8080/admin/reset
+kubectl exec frontend -- curl -m 5 -X POST http://payment-api:8080/admin/reset
 ```
 
-**Expected**: 403 Forbidden
+**Expected**: Timeout or connection reset (L7 policy blocks unauthorized paths)
 
 ```bash
 # 8. Verify with Hubble
