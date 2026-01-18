@@ -79,7 +79,8 @@ graph TB
 
 - **Image**: `curlimages/curl:latest`
 - Used for testing network policies
-- **Note**: This pod simulates an external client - it can only access the `api-gateway`, not internal services directly
+- **Policy**: `test-client-policy` - egress only to `api-gateway:80` and DNS
+- **Note**: This pod simulates an external client - it can only access the `api-gateway`, not internal services directly or the internet
 
 ---
 
@@ -207,15 +208,18 @@ graph LR
         P1[api-gateway-policy]
         P2[payment-service-policy]
         P3[payment-db-policy]
+        P4[test-client-policy]
     end
 
     P1 -->|L3/L4| Gateway[API Gateway]
     P2 -->|L7 HTTP| Payment[Payment Service]
     P3 -->|L4| DB[(Database)]
+    P4 -->|L4| TestClient[Test Client]
 
     style P1 fill:#4dabf7,color:#fff
     style P2 fill:#51cf66,color:#fff
     style P3 fill:#ffd43b,color:#000
+    style P4 fill:#868e96,color:#fff
 ```
 
 | Policy | Layer | Rules |
@@ -223,6 +227,7 @@ graph LR
 | `api-gateway-policy` | L3/L4 | Accept from `world`, egress to `payment-service:8080` |
 | `payment-service-policy` | L7 | HTTP method filtering, egress to `payment-db:5432` |
 | `payment-db-policy` | L4 | Accept only from `payment-service:5432` |
+| `test-client-policy` | L4 | Egress only to `api-gateway:80` (no internet) |
 
 ---
 

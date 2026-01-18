@@ -367,7 +367,7 @@ spec:
         - matchPattern: "*"
 
 ---
-# 4. MONITORING POD (for testing Hubble queries)
+# 4. TEST CLIENT POD (for testing network policies)
 ---
 apiVersion: v1
 kind: Pod
@@ -384,4 +384,41 @@ spec:
   - name: curl
     image: curlimages/curl:latest
     command: ["sleep", "3600"]
+
+---
+# NetworkPolicy: Test client can only access API Gateway (simulates external client)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: test-client-policy
+  namespace: payment-system
+spec:
+  description: "Test client: can only access api-gateway, no internet egress"
+  endpointSelector:
+    matchLabels:
+      app: test-client
+
+  # Egress: Allow only to api-gateway and DNS
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: api-gateway
+        tier: frontend
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+
+  # DNS resolution
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": kube-system
+        "k8s:k8s-app": kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      rules:
+        dns:
+        - matchPattern: "*"
 
