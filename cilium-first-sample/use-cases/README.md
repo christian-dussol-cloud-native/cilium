@@ -130,15 +130,17 @@ kubectl exec -n payment-system test-client -- \
 # Expected: timeout (only payment-service can reach the database)
 ```
 
-### Scenario D: Internet Access from Payment Service (BLOCKED - Egress)
+### Scenario D: Internet Access from Test Client (BLOCKED - Egress)
 
-Internal services cannot reach the internet (defense in depth).
+The test-client cannot access the internet (no egress to world allowed).
 
 ```bash
-kubectl exec -n payment-system deployment/payment-service -c api -- \
-  wget -T 5 http://google.com
+kubectl exec -n payment-system test-client -- \
+  curl -m 5 http://google.com
 # Expected: timeout (no egress to world)
 ```
+
+> **Note**: The `payment-service` uses `hashicorp/http-echo` which doesn't have curl/wget. The egress restriction applies to all pods in the namespace via the network policies.
 
 ---
 
