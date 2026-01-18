@@ -332,12 +332,9 @@ kubectl delete namespace test-namespace treasury
 
 ### Financial Impact
 
-- Save **20-40 hours/month** on manual cost allocation
-- **100% accuracy** (vs 60-70% with manual tagging)
 - Enable granular budgets per team
 - Identify cost optimization opportunities per cost-center
-- Eliminate manual policy creation (**save 15-30 min per namespace**)
-- Automated compliance = **save $50k-200k/year** on external audits
+- Eliminate manual policy creation
 
 ---
 
