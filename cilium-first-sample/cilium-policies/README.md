@@ -162,6 +162,8 @@ kubectl wait --for=condition=ready pod/frontend
 kubectl exec frontend -- curl -X POST http://payment-api:8080/api/v1/payment
 ```
 
+![Cilium Policies L7](../images/Cilium-policies-L7.png)
+
 **Expected**: 200 OK
 
 ```bash
